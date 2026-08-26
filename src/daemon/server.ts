@@ -6,7 +6,7 @@ import type { ClientRequest, DaemonEvent } from "../protocol/messages.js";
 import type { Config } from "../config/schema.js";
 import { STAGE_ORDER } from "../stages/types.js";
 import { loadStageBackend } from "../stages/loader.js";
-import { stubBackend } from "../stages/stub.js";
+import { getDefaultBackend } from "../stages/defaults.js";
 import { resolveActivationFd, resolveListenTarget } from "./activation.js";
 import { startIdleShutdown } from "./idle-shutdown.js";
 
@@ -37,7 +37,7 @@ async function runPipeline(
     const backendPath = config.stages?.[stage]?.backend;
     const backend = backendPath
       ? await loadStageBackend(backendPath)
-      : stubBackend;
+      : getDefaultBackend(stage);
 
     send(socket, { type: "stage_started", runId, stage });
     const result = await backend.run({ runId, cwd });

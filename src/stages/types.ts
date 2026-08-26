@@ -17,8 +17,16 @@ export interface StageContext {
   cwd: string;
 }
 
+export interface Finding {
+  message: string;
+  severity: "error" | "warning" | "info";
+  file?: string;
+  line?: number;
+}
+
 export interface StageResult {
   status: "passed" | "failed";
+  findings?: Finding[];
 }
 
 export interface StageBackend {
