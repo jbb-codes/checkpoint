@@ -10,6 +10,12 @@ function describe(event: RunEvent): string {
       return `[${event.stage}] started`;
     case "stage_finished":
       return `[${event.stage}] ${event.status}`;
+    case "gate_hit":
+      return `[${event.stage}] gated: ${event.findings
+        .map((finding) => `${finding.id} ${finding.description}`)
+        .join(
+          "; ",
+        )} — run "checkpoint respond ${event.runId} <approve|skip|fix> [ids]"`;
     case "outcome":
       return `run ${event.runId}: ${event.status}`;
   }

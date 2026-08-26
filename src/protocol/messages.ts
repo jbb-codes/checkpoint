@@ -1,3 +1,5 @@
+import type { Finding } from "../stages/types.js";
+
 export interface RunRequest {
   type: "run";
   cwd: string;
@@ -7,10 +9,24 @@ export interface StatusRequest {
   type: "status";
 }
 
+export type RespondAction = "approve" | "skip" | "fix";
+
+export interface RespondRequest {
+  type: "respond";
+  runId: string;
+  action: RespondAction;
+  findingIds?: string[];
+}
+
+export interface AbortRequest {
+  type: "abort";
+  runId: string;
+}
+
 export interface RunSummary {
   id: string;
   repo: string;
-  status: "running" | "passed" | "failed";
+  status: "running" | "gated" | "passed" | "failed" | "aborted";
   startedAt: string;
   finishedAt: string | null;
 }
@@ -33,13 +49,25 @@ export interface StageFinishedEvent {
   status: "passed" | "failed";
 }
 
+export interface GateHitEvent {
+  type: "gate_hit";
+  runId: string;
+  stage: string;
+  findings: Finding[];
+}
+
 export interface OutcomeMessage {
   type: "outcome";
   runId: string;
-  status: "passed" | "failed";
+  status: "passed" | "failed" | "aborted";
 }
 
 export type DaemonEvent =
-  StageStartedEvent | StageFinishedEvent | OutcomeMessage | StatusResponse;
+  | StageStartedEvent
+  | StageFinishedEvent
+  | GateHitEvent
+  | OutcomeMessage
+  | StatusResponse;
 
-export type ClientRequest = RunRequest | StatusRequest;
+export type ClientRequest =
+  RunRequest | StatusRequest | RespondRequest | AbortRequest;

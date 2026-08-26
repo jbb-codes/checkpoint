@@ -9,12 +9,20 @@ import { promisify } from "node:util";
 import { runCommand } from "./cli/run.js";
 import { statusCommand } from "./cli/status.js";
 import { initCommand } from "./cli/init.js";
+import { respondCommand } from "./cli/respond.js";
+import { abortCommand } from "./cli/abort.js";
+import type { RespondAction } from "./protocol/messages.js";
 import { defaultGlobalConfigPath, defaultSocketPath } from "./daemon/paths.js";
 
 const execFileAsync = promisify(execFile);
+const RESPOND_ACTIONS: RespondAction[] = ["approve", "skip", "fix"];
+
+function isRespondAction(value: string | undefined): value is RespondAction {
+  return RESPOND_ACTIONS.includes(value as RespondAction);
+}
 
 async function main(): Promise<void> {
-  const [command] = process.argv.slice(2);
+  const [command, ...args] = process.argv.slice(2);
 
   switch (command) {
     case "run":
@@ -23,6 +31,32 @@ async function main(): Promise<void> {
     case "status":
       await statusCommand();
       break;
+    case "respond": {
+      const [runId, action, findingIds] = args;
+      if (!runId || !isRespondAction(action)) {
+        console.error(
+          "checkpoint: usage: checkpoint respond <runId> <approve|skip|fix> [findingId1,findingId2]",
+        );
+        process.exitCode = 1;
+        break;
+      }
+      await respondCommand({
+        runId,
+        action,
+        findingIds: findingIds ? findingIds.split(",") : undefined,
+      });
+      break;
+    }
+    case "abort": {
+      const [runId] = args;
+      if (!runId) {
+        console.error("checkpoint: usage: checkpoint abort <runId>");
+        process.exitCode = 1;
+        break;
+      }
+      await abortCommand(runId);
+      break;
+    }
     case "init":
       await initCommand({
         platform: process.platform,
