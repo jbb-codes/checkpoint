@@ -38,7 +38,7 @@ describe("createTestBackend", () => {
   });
 
   it("invokes npm test in the stage's working directory", async () => {
-    const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
+    const calls: { command: string; args: string[]; cwd: string }[] = [];
     const runner: CommandRunner = async (command, args, options) => {
       calls.push({ command, args, cwd: options.cwd });
       return { code: 0, stdout: "", stderr: "" };

@@ -13,6 +13,7 @@ function readConfigFile(path: string | undefined): Config {
   return configSchema.parse(parsed ?? {});
 }
 
+// eslint-disable-next-line @typescript-eslint/require-await -- callers await this and a test asserts Promise-rejection semantics on sync-throw paths
 export async function loadConfig(options: LoadConfigOptions): Promise<Config> {
   const global = readConfigFile(options.globalPath);
   const repo = readConfigFile(options.repoPath);

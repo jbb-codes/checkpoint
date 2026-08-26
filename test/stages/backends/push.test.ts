@@ -4,7 +4,7 @@ import type { CommandRunner } from "../../../src/stages/exec.js";
 
 describe("createPushBackend", () => {
   it("resolves the current branch and pushes it to origin", async () => {
-    const calls: Array<{ command: string; args: string[] }> = [];
+    const calls: { command: string; args: string[] }[] = [];
     const runner: CommandRunner = async (command, args) => {
       calls.push({ command, args });
       if (args[0] === "rev-parse") {

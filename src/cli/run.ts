@@ -41,7 +41,7 @@ export async function runCommand(): Promise<void> {
         }
       }
     });
-    socket.on("close", () => resolve());
+    socket.on("close", () => { resolve(); });
     socket.on("error", reject);
     socket.write(JSON.stringify({ type: "run", cwd: process.cwd() }) + "\n");
   });

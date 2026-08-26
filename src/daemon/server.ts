@@ -62,7 +62,7 @@ async function runPipeline(
     send(state.socket, { type: "stage_started", runId, stage });
     const result = await backend.run({ runId, cwd });
 
-    if (state.aborted) break;
+    if (registry.get(runId)?.aborted) break;
 
     const askUserFindings = (result.findings ?? []).filter(
       (finding) => finding.action === "ask-user",
@@ -82,7 +82,7 @@ async function runPipeline(
       });
       state.resolveGate = undefined;
 
-      if (state.aborted) break;
+      if (registry.get(runId)?.aborted) break;
 
       if (response.action === "approve") {
         send(state.socket, {
@@ -166,7 +166,7 @@ function handleConnection(
           action: request.action,
           findingIds: request.findingIds,
         });
-      } else if (request.type === "abort") {
+      } else {
         const state = registry.get(request.runId);
         if (state) {
           state.aborted = true;
@@ -204,7 +204,11 @@ export function startDaemon(options: DaemonOptions): Promise<Daemon> {
   function close(): Promise<void> {
     idle?.dispose();
     store.close();
-    return new Promise((closeResolve) => server.close(() => closeResolve()));
+    return new Promise((closeResolve) =>
+      server.close(() => {
+        closeResolve();
+      }),
+    );
   }
 
   return new Promise((resolve, reject) => {
