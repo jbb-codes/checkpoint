@@ -1,5 +1,23 @@
 export interface RunRequest {
   type: "run";
+  cwd: string;
+}
+
+export interface StatusRequest {
+  type: "status";
+}
+
+export interface RunSummary {
+  id: string;
+  repo: string;
+  status: "running" | "passed" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface StatusResponse {
+  type: "status_response";
+  runs: RunSummary[];
 }
 
 export interface StageStartedEvent {
@@ -22,6 +40,6 @@ export interface OutcomeMessage {
 }
 
 export type DaemonEvent =
-  StageStartedEvent | StageFinishedEvent | OutcomeMessage;
+  StageStartedEvent | StageFinishedEvent | OutcomeMessage | StatusResponse;
 
-export type ClientRequest = RunRequest;
+export type ClientRequest = RunRequest | StatusRequest;

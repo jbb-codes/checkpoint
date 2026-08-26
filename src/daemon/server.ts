@@ -24,6 +24,7 @@ function send(socket: Socket, event: DaemonEvent): void {
 
 async function runPipeline(
   runId: string,
+  cwd: string,
   socket: Socket,
   store: RunStore,
   config: Config,
@@ -35,7 +36,7 @@ async function runPipeline(
       : stubBackend;
 
     send(socket, { type: "stage_started", runId, stage });
-    const result = await backend.run({ runId, cwd: process.cwd() });
+    const result = await backend.run({ runId, cwd });
     send(socket, {
       type: "stage_finished",
       runId,
@@ -72,8 +73,10 @@ function handleConnection(
       const request = JSON.parse(line) as ClientRequest;
       if (request.type === "run") {
         const runId = randomUUID();
-        store.createRun(runId, new Date().toISOString());
-        void runPipeline(runId, socket, store, config);
+        store.createRun(runId, request.cwd, new Date().toISOString());
+        void runPipeline(runId, request.cwd, socket, store, config);
+      } else if (request.type === "status") {
+        send(socket, { type: "status_response", runs: store.listRuns() });
       }
     }
   });
