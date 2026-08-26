@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { connect } from "node:net";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -27,13 +27,17 @@ describe("daemon pipeline run", () => {
   });
 
   function collectEvents(): Promise<DaemonEvent[]> {
+    return collectEventsWithCwd(dir);
+  }
+
+  function collectEventsWithCwd(cwd: string): Promise<DaemonEvent[]> {
     return new Promise((resolve, reject) => {
       const events: DaemonEvent[] = [];
       const socket = connect(socketPath);
       let buffer = "";
 
       socket.on("connect", () => {
-        socket.write(JSON.stringify({ type: "run" }) + "\n");
+        socket.write(JSON.stringify({ type: "run", cwd }) + "\n");
       });
 
       socket.on("data", (chunk) => {
@@ -52,6 +56,29 @@ describe("daemon pipeline run", () => {
       });
 
       socket.on("close", () => resolve(events));
+      socket.on("error", reject);
+    });
+  }
+
+  function fetchStatus(): Promise<DaemonEvent> {
+    return new Promise((resolve, reject) => {
+      const socket = connect(socketPath);
+      let buffer = "";
+
+      socket.on("connect", () => {
+        socket.write(JSON.stringify({ type: "status" }) + "\n");
+      });
+
+      socket.on("data", (chunk) => {
+        buffer += chunk.toString();
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex === -1) return;
+        const line = buffer.slice(0, newlineIndex);
+        const message = JSON.parse(line) as DaemonEvent;
+        socket.end();
+        resolve(message);
+      });
+
       socket.on("error", reject);
     });
   }
@@ -125,5 +152,48 @@ describe("daemon pipeline run", () => {
     const outcome = events[events.length - 1];
     if (outcome.type !== "outcome") throw new Error("expected outcome");
     expect(outcome.status).toBe("failed");
+  });
+
+  it("passes the requesting client's cwd to stage backends, not the daemon's own", async () => {
+    const capturedCwdPath = join(dir, "captured-cwd.json");
+    const cwdCapturingBackendPath = join(dir, "cwd-capturing-backend.mjs");
+    writeFileSync(
+      cwdCapturingBackendPath,
+      `import { writeFileSync } from "node:fs";
+       export default { run: async (ctx) => {
+         writeFileSync(${JSON.stringify(capturedCwdPath)}, JSON.stringify(ctx.cwd));
+         return { status: "passed" };
+       } };`,
+    );
+    const config: Config = {
+      stages: { intent: { backend: cwdCapturingBackendPath } },
+    };
+    daemon = await startDaemon({ socketPath, dbPath, config });
+
+    const clientCwd = join(dir, "some", "other", "worktree");
+    await collectEventsWithCwd(clientCwd);
+
+    const captured = JSON.parse(
+      readFileSync(capturedCwdPath, "utf8"),
+    ) as string;
+    expect(captured).toBe(clientCwd);
+  });
+
+  it("reports runs from multiple repos/worktrees through the same daemon's status", async () => {
+    daemon = await startDaemon({ socketPath, dbPath, config: {} });
+
+    const repoA = join(dir, "repo-a");
+    const repoB = join(dir, "repo-b");
+    await collectEventsWithCwd(repoA);
+    await collectEventsWithCwd(repoB);
+
+    const response = await fetchStatus();
+    if (response.type !== "status_response") {
+      throw new Error("expected status_response");
+    }
+
+    const repos = response.runs.map((run) => run.repo).sort();
+    expect(repos).toEqual([repoA, repoB].sort());
+    expect(response.runs.every((run) => run.status === "passed")).toBe(true);
   });
 });

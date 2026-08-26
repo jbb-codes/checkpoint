@@ -4,7 +4,7 @@ A CLI gate that validates your code changes — review, test, lint, docs — bef
 
 ## Status
 
-Early. The daemon/socket/SQLite/CLI stack works end-to-end for a single hardcoded stage — `checkpoint run` starts the daemon if needed, streams stage events live, and persists the run. The real 9-stage pipeline, findings/gating (`checkpoint respond`), and Windows named-pipe transport are not built yet.
+Early. One daemon, shared across every worktree/repo on the machine, runs the full 9-stage pipeline (`intent`, `rebase`, `review`, `test`, `document`, `lint`, `push`, `PR`, `CI`) and lazily auto-starts on any CLI invocation. `checkpoint status` lists runs from all repos through that same daemon. Findings/gating (`checkpoint respond`) and Windows named-pipe transport are not built yet.
 
 ## Usage
 
@@ -12,9 +12,10 @@ Early. The daemon/socket/SQLite/CLI stack works end-to-end for a single hardcode
 npm install
 npm run build
 node dist/index.js run
+node dist/index.js status
 ```
 
-`checkpoint run` connects to the background daemon (spawning it on first use), runs one stub stage, and prints `stage_started` / `stage_finished` / `outcome` as they happen. Daemon state lives under `~/.checkpoint/` (Unix socket + SQLite).
+`checkpoint run` connects to the background daemon (spawning it detached on first use, from any worktree), runs the pipeline, and prints `stage_started` / `stage_finished` / `outcome` as they happen. `checkpoint status` prints every run recorded across all repos. Daemon state is global under `~/.checkpoint/` (Unix socket + SQLite) — not scoped per-repo or per-worktree.
 
 ## Development
 
