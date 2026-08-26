@@ -4,7 +4,7 @@ A CLI gate that validates your code changes — review, test, lint, docs — bef
 
 ## Status
 
-Early. One daemon, shared across every worktree/repo on the machine, runs the full 9-stage pipeline (`intent`, `rebase`, `review`, `test`, `document`, `lint`, `push`, `PR`, `CI`) and lazily auto-starts on any CLI invocation. `checkpoint status` lists runs from all repos through that same daemon. Findings/gating (`checkpoint respond`) and Windows named-pipe transport are not built yet.
+Early. One daemon, shared across every worktree/repo on the machine, runs the full 9-stage pipeline (`intent`, `rebase`, `review`, `test`, `document`, `lint`, `push`, `PR`, `CI`) and lazily auto-starts on any CLI invocation. `checkpoint status` lists runs from all repos through that same daemon. The daemon/CLI transport is a Unix domain socket on macOS/Linux and a named pipe on Windows, selected from one place (`src/daemon/paths.ts`). Findings/gating (`checkpoint respond`) is not built yet.
 
 ## Usage
 
@@ -15,7 +15,7 @@ node dist/index.js run
 node dist/index.js status
 ```
 
-`checkpoint run` connects to the background daemon (spawning it detached on first use, from any worktree), runs the pipeline, and prints `stage_started` / `stage_finished` / `outcome` as they happen. `checkpoint status` prints every run recorded across all repos. Daemon state is global under `~/.checkpoint/` (Unix socket + SQLite) — not scoped per-repo or per-worktree.
+`checkpoint run` connects to the background daemon (spawning it detached on first use, from any worktree), runs the pipeline, and prints `stage_started` / `stage_finished` / `outcome` as they happen. `checkpoint status` prints every run recorded across all repos. Daemon state is global under `~/.checkpoint/` (Unix socket on macOS/Linux, named pipe on Windows, + SQLite) — not scoped per-repo or per-worktree.
 
 ## Development
 
