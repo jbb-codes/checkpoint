@@ -17,8 +17,20 @@ export interface StageContext {
   cwd: string;
 }
 
+export type FindingAction = "auto-fix" | "no-op" | "ask-user";
+
+export interface Finding {
+  id: string;
+  severity: "info" | "warning" | "error";
+  file?: string;
+  line?: number;
+  description: string;
+  action: FindingAction;
+}
+
 export interface StageResult {
   status: "passed" | "failed";
+  findings?: Finding[];
 }
 
 export interface StageBackend {
