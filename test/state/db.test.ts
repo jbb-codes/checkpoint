@@ -43,3 +43,39 @@ describe("openRunStore migration", () => {
     ]);
   });
 });
+
+describe("openRunStore restart recovery", () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("marks runs left 'running' by a killed daemon as 'failed' on the next open", () => {
+    dir = mkdtempSync(join(tmpdir(), "checkpoint-db-test-"));
+    const dbPath = join(dir, "state.db");
+
+    let store = openRunStore(dbPath);
+    store.createRun("run-1", "/some/repo", "2026-01-01T00:00:00.000Z");
+    store.createRun("run-2", "/some/repo", "2026-01-01T00:01:00.000Z");
+    store.finishRun("run-2", "passed", "2026-01-01T00:02:00.000Z");
+    store.close();
+
+    store = openRunStore(dbPath);
+    store.markInterruptedRunsFailed("2026-01-01T00:05:00.000Z");
+    const runs = store.listRuns();
+    store.close();
+
+    const run1 = runs.find((run) => run.id === "run-1");
+    const run2 = runs.find((run) => run.id === "run-2");
+    expect(run1).toEqual({
+      id: "run-1",
+      repo: "/some/repo",
+      status: "failed",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      finishedAt: "2026-01-01T00:05:00.000Z",
+    });
+    expect(run2?.status).toBe("passed");
+    expect(run2?.finishedAt).toBe("2026-01-01T00:02:00.000Z");
+  });
+});

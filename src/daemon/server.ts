@@ -7,6 +7,10 @@ import type { Config } from "../config/schema.js";
 import { STAGE_ORDER } from "../stages/types.js";
 import { loadStageBackend } from "../stages/loader.js";
 import { stubBackend } from "../stages/stub.js";
+import { resolveActivationFd, resolveListenTarget } from "./activation.js";
+import { startIdleShutdown } from "./idle-shutdown.js";
+
+const IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
 
 export interface DaemonOptions {
   socketPath: string;
@@ -84,27 +88,37 @@ function handleConnection(
 
 export function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const store = openRunStore(options.dbPath);
+  store.markInterruptedRunsFailed(new Date().toISOString());
 
-  if (existsSync(options.socketPath)) {
+  const activationFd = resolveActivationFd(process.env);
+  if (activationFd === undefined && existsSync(options.socketPath)) {
     unlinkSync(options.socketPath);
   }
 
-  const server: Server = createServer((socket) =>
-    handleConnection(socket, store, options.config),
-  );
+  const idle =
+    activationFd === undefined
+      ? undefined
+      : startIdleShutdown(() => {
+          void close().then(() => process.exit(0));
+        }, IDLE_SHUTDOWN_MS);
+
+  const server: Server = createServer((socket) => {
+    idle?.connectionOpened();
+    socket.on("close", () => idle?.connectionClosed());
+    handleConnection(socket, store, options.config);
+  });
+
+  function close(): Promise<void> {
+    idle?.dispose();
+    store.close();
+    return new Promise((closeResolve) => server.close(() => closeResolve()));
+  }
 
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(options.socketPath, () => {
+    server.listen(resolveListenTarget(options.socketPath, activationFd), () => {
       server.removeListener("error", reject);
-      resolve({
-        close(): Promise<void> {
-          store.close();
-          return new Promise((closeResolve) =>
-            server.close(() => closeResolve()),
-          );
-        },
-      });
+      resolve({ close });
     });
   });
 }
