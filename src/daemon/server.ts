@@ -2,13 +2,15 @@ import { createServer, type Server, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
 import { unlinkSync, existsSync } from "node:fs";
 import { openRunStore, type RunStore } from "../state/db.js";
-import type {
-  ClientRequest,
-  DaemonEvent,
-  RespondAction,
+import {
+  clientRequestSchema,
+  type DaemonEvent,
+  type RespondAction,
 } from "../protocol/messages.js";
+import { createLineReader } from "../protocol/framing.js";
 import type { Config } from "../config/schema.js";
-import { STAGE_ORDER } from "../stages/types.js";
+import { STAGE_ORDER, type StageName } from "../stages/types.js";
+import type { StageBackend, StageResult } from "../stages/types.js";
 import { loadStageBackend } from "../stages/loader.js";
 import { getDefaultBackend } from "../stages/defaults.js";
 import { resolveActivationFd, resolveListenTarget } from "./activation.js";
@@ -32,13 +34,95 @@ interface GateResponse {
 }
 
 interface RunState {
-  socket: Socket;
-  aborted: boolean;
-  resolveGate?: (response: GateResponse) => void;
+  readonly socket: Socket;
+  readonly aborted: boolean;
+  readonly resolveGate?: (response: GateResponse) => void;
 }
 
 function send(socket: Socket, event: DaemonEvent): void {
   socket.write(JSON.stringify(event) + "\n");
+}
+
+function patchRunState(
+  registry: Map<string, RunState>,
+  runId: string,
+  patch: Partial<RunState>,
+): void {
+  const current = registry.get(runId);
+  if (!current) return;
+  registry.set(runId, { ...current, ...patch });
+}
+
+function isAborted(registry: Map<string, RunState>, runId: string): boolean {
+  return registry.get(runId)?.aborted ?? false;
+}
+
+function finishRun(
+  runId: string,
+  status: "passed" | "failed" | "aborted",
+  socket: Socket,
+  store: RunStore,
+  registry: Map<string, RunState>,
+): void {
+  store.finishRun(runId, status, new Date().toISOString());
+  send(socket, { type: "outcome", runId, status });
+  registry.delete(runId);
+}
+
+async function resolveStageBackend(
+  stage: StageName,
+  config: Config,
+): Promise<StageBackend> {
+  const backendPath = config.stages?.[stage]?.backend;
+  return backendPath
+    ? await loadStageBackend(backendPath)
+    : getDefaultBackend(stage);
+}
+
+async function waitForGateResponse(
+  runId: string,
+  registry: Map<string, RunState>,
+): Promise<GateResponse> {
+  const response = await new Promise<GateResponse>((resolve) => {
+    patchRunState(registry, runId, { resolveGate: resolve });
+  });
+  patchRunState(registry, runId, { resolveGate: undefined });
+  return response;
+}
+
+async function handleGateHit(
+  runId: string,
+  stage: StageName,
+  result: StageResult,
+  socket: Socket,
+  store: RunStore,
+  registry: Map<string, RunState>,
+): Promise<"aborted" | "failed" | "continue"> {
+  store.markRunGated(runId);
+  send(socket, {
+    type: "gate_hit",
+    runId,
+    stage,
+    findings: result.findings ?? [],
+  });
+
+  const response = await waitForGateResponse(runId, registry);
+
+  if (isAborted(registry, runId)) return "aborted";
+
+  if (response.action === "approve") {
+    send(socket, {
+      type: "stage_finished",
+      runId,
+      stage,
+      status: result.status,
+    });
+    return result.status === "failed" ? "failed" : "continue";
+  }
+
+  // "skip" or "fix": the gated finding is resolved without failing the run.
+  send(socket, { type: "stage_finished", runId, stage, status: "passed" });
+  return "continue";
 }
 
 async function runPipeline(
@@ -48,68 +132,41 @@ async function runPipeline(
   config: Config,
   registry: Map<string, RunState>,
 ): Promise<void> {
-  const state = registry.get(runId);
-  if (!state) return;
+  const initial = registry.get(runId);
+  if (!initial) return;
+  const socket = initial.socket;
 
   for (const stage of STAGE_ORDER) {
-    if (state.aborted) break;
+    if (isAborted(registry, runId)) break;
 
-    const backendPath = config.stages?.[stage]?.backend;
-    const backend = backendPath
-      ? await loadStageBackend(backendPath)
-      : getDefaultBackend(stage);
+    const backend = await resolveStageBackend(stage, config);
 
-    send(state.socket, { type: "stage_started", runId, stage });
+    send(socket, { type: "stage_started", runId, stage });
     const result = await backend.run({ runId, cwd });
 
-    if (registry.get(runId)?.aborted) break;
+    if (isAborted(registry, runId)) break;
 
     const askUserFindings = (result.findings ?? []).filter(
       (finding) => finding.action === "ask-user",
     );
 
     if (askUserFindings.length > 0) {
-      store.markRunGated(runId);
-      send(state.socket, {
-        type: "gate_hit",
+      const outcome = await handleGateHit(
         runId,
         stage,
-        findings: result.findings ?? [],
-      });
-
-      const response = await new Promise<GateResponse>((resolve) => {
-        state.resolveGate = resolve;
-      });
-      state.resolveGate = undefined;
-
-      if (registry.get(runId)?.aborted) break;
-
-      if (response.action === "approve") {
-        send(state.socket, {
-          type: "stage_finished",
-          runId,
-          stage,
-          status: result.status,
-        });
-        if (result.status === "failed") {
-          store.finishRun(runId, "failed", new Date().toISOString());
-          send(state.socket, { type: "outcome", runId, status: "failed" });
-          registry.delete(runId);
-          return;
-        }
-      } else {
-        // "skip" or "fix": the gated finding is resolved without failing the run.
-        send(state.socket, {
-          type: "stage_finished",
-          runId,
-          stage,
-          status: "passed",
-        });
+        result,
+        socket,
+        store,
+        registry,
+      );
+      if (outcome === "aborted" || outcome === "failed") {
+        finishRun(runId, outcome, socket, store, registry);
+        return;
       }
       continue;
     }
 
-    send(state.socket, {
+    send(socket, {
       type: "stage_finished",
       runId,
       stage,
@@ -117,23 +174,17 @@ async function runPipeline(
     });
 
     if (result.status === "failed") {
-      store.finishRun(runId, "failed", new Date().toISOString());
-      send(state.socket, { type: "outcome", runId, status: "failed" });
-      registry.delete(runId);
+      finishRun(runId, "failed", socket, store, registry);
       return;
     }
   }
 
-  if (state.aborted) {
-    store.finishRun(runId, "aborted", new Date().toISOString());
-    send(state.socket, { type: "outcome", runId, status: "aborted" });
-    registry.delete(runId);
+  if (isAborted(registry, runId)) {
+    finishRun(runId, "aborted", socket, store, registry);
     return;
   }
 
-  store.finishRun(runId, "passed", new Date().toISOString());
-  send(state.socket, { type: "outcome", runId, status: "passed" });
-  registry.delete(runId);
+  finishRun(runId, "passed", socket, store, registry);
 }
 
 function handleConnection(
@@ -142,39 +193,50 @@ function handleConnection(
   config: Config,
   registry: Map<string, RunState>,
 ): void {
-  let buffer = "";
+  const onLine = createLineReader((line) => {
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(line);
+    } catch {
+      console.error(
+        "checkpoint: dropping malformed client message (invalid JSON)",
+      );
+      return;
+    }
 
-  socket.on("data", (chunk: Buffer) => {
-    buffer += chunk.toString();
-    let newlineIndex: number;
-    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line.length === 0) continue;
+    const parsed = clientRequestSchema.safeParse(parsedJson);
+    if (!parsed.success) {
+      console.error(
+        `checkpoint: dropping malformed client message: ${parsed.error.message}`,
+      );
+      return;
+    }
+    const request = parsed.data;
 
-      const request = JSON.parse(line) as ClientRequest;
-      if (request.type === "run") {
-        const runId = randomUUID();
-        store.createRun(runId, request.cwd, new Date().toISOString());
-        registry.set(runId, { socket, aborted: false });
-        void runPipeline(runId, request.cwd, store, config, registry);
-      } else if (request.type === "status") {
-        send(socket, { type: "status_response", runs: store.listRuns() });
-      } else if (request.type === "respond") {
-        const state = registry.get(request.runId);
-        state?.resolveGate?.({
-          action: request.action,
-          findingIds: request.findingIds,
-        });
-      } else {
-        const state = registry.get(request.runId);
-        if (state) {
-          state.aborted = true;
-          state.resolveGate?.({ action: "approve" });
-        }
-      }
+    if (request.type === "run") {
+      const runId = randomUUID();
+      store.createRun(runId, request.cwd, new Date().toISOString());
+      registry.set(runId, { socket, aborted: false });
+      void runPipeline(runId, request.cwd, store, config, registry);
+    } else if (request.type === "status") {
+      send(socket, { type: "status_response", runs: store.listRuns() });
+    } else if (request.type === "respond") {
+      const state = registry.get(request.runId);
+      state?.resolveGate?.({
+        action: request.action,
+        findingIds: request.findingIds,
+      });
+    } else {
+      const state = registry.get(request.runId);
+      state?.resolveGate?.({ action: "approve" });
+      patchRunState(registry, request.runId, {
+        aborted: true,
+        resolveGate: undefined,
+      });
     }
   });
+
+  socket.on("data", onLine);
 }
 
 export function startDaemon(options: DaemonOptions): Promise<Daemon> {

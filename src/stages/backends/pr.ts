@@ -6,7 +6,8 @@ function parseExistingPrUrl(stdout: string): string | undefined {
   try {
     const parsed = JSON.parse(stdout) as { url?: string };
     return parsed.url;
-  } catch {
+  } catch (error) {
+    console.error("checkpoint: failed to parse `gh pr view` output", error);
     return undefined;
   }
 }

@@ -19,7 +19,8 @@ function parseEslintReport(stdout: string): Finding[] {
   let report: EslintFileReport[];
   try {
     report = JSON.parse(stdout) as EslintFileReport[];
-  } catch {
+  } catch (error) {
+    console.error("checkpoint: failed to parse eslint output", error);
     return [];
   }
 

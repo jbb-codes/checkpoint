@@ -1,6 +1,7 @@
 import { defaultSocketPath } from "../daemon/paths.js";
 import { connectWithRetry } from "../daemon/client.js";
-import type { DaemonEvent, RunSummary } from "../protocol/messages.js";
+import { daemonEventSchema, type RunSummary } from "../protocol/messages.js";
+import { createLineReader } from "../protocol/framing.js";
 
 function describeRun(run: RunSummary): string {
   return `${run.id}  ${run.repo}  ${run.status}`;
@@ -8,16 +9,10 @@ function describeRun(run: RunSummary): string {
 
 export async function statusCommand(): Promise<void> {
   const socket = await connectWithRetry(defaultSocketPath());
-  let buffer = "";
 
   await new Promise<void>((resolve, reject) => {
-    socket.on("data", (chunk) => {
-      buffer += chunk.toString();
-      const newlineIndex = buffer.indexOf("\n");
-      if (newlineIndex === -1) return;
-      const line = buffer.slice(0, newlineIndex);
-
-      const event = JSON.parse(line) as DaemonEvent;
+    const onLine = createLineReader((line) => {
+      const event = daemonEventSchema.parse(JSON.parse(line));
       if (event.type === "status_response") {
         if (event.runs.length === 0) {
           console.log("no runs yet");
@@ -29,7 +24,10 @@ export async function statusCommand(): Promise<void> {
         socket.end();
       }
     });
-    socket.on("close", () => { resolve(); });
+    socket.on("data", onLine);
+    socket.on("close", () => {
+      resolve();
+    });
     socket.on("error", reject);
     socket.write(JSON.stringify({ type: "status" }) + "\n");
   });

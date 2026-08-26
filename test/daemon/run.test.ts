@@ -239,4 +239,32 @@ describe("daemon pipeline run", () => {
     expect(repos).toEqual([repoA, repoB].sort());
     expect(response.runs.every((run) => run.status === "passed")).toBe(true);
   });
+
+  it("drops malformed client messages instead of crashing, and keeps serving later requests", async () => {
+    daemon = await startDaemon({
+      socketPath,
+      dbPath,
+      config: stubOutRealDefaults(),
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(socketPath);
+      socket.on("connect", () => {
+        socket.write("not valid json at all\n");
+        socket.write(JSON.stringify({ type: "not-a-real-type" }) + "\n");
+        socket.write(JSON.stringify({ type: "run" }) + "\n"); // missing required "cwd"
+        socket.end();
+      });
+      socket.on("close", () => {
+        resolve();
+      });
+      socket.on("error", reject);
+    });
+
+    const response = await fetchStatus();
+    if (response.type !== "status_response") {
+      throw new Error("expected status_response");
+    }
+    expect(response.runs).toEqual([]);
+  });
 });

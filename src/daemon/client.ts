@@ -13,7 +13,9 @@ function sleep(ms: number): Promise<void> {
 function tryConnect(socketPath: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = connect(socketPath);
-    socket.once("connect", () => { resolve(socket); });
+    socket.once("connect", () => {
+      resolve(socket);
+    });
     socket.once("error", reject);
   });
 }
@@ -23,6 +25,9 @@ function spawnDaemon(): void {
   const child = spawn(process.execPath, [daemonEntry], {
     detached: true,
     stdio: "ignore",
+  });
+  child.on("error", (error) => {
+    console.error(`checkpoint: failed to spawn daemon: ${error.message}`);
   });
   child.unref();
 }

@@ -1,6 +1,6 @@
 import { defaultCommandRunner, type CommandRunner } from "../exec.js";
 import type { StageBackend } from "../types.js";
-import { createFinding } from "./finding.js";
+import { commandFailureResult } from "./finding.js";
 
 export function createTestBackend(
   runner: CommandRunner = defaultCommandRunner,
@@ -12,16 +12,7 @@ export function createTestBackend(
       });
 
       if (result.code !== 0) {
-        return {
-          status: "failed",
-          findings: [
-            createFinding({
-              description:
-                result.stderr.trim() || result.stdout.trim() || "tests failed",
-              severity: "error",
-            }),
-          ],
-        };
+        return commandFailureResult(result, "tests failed");
       }
 
       return { status: "passed" };
