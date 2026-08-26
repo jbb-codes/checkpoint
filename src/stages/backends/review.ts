@@ -8,7 +8,7 @@ type FileReader = (path: string) => string;
 
 const defaultReadFile: FileReader = (path) => readFileSync(path, "utf-8");
 
-const REVIEW_RULES: Array<{ pattern: RegExp; message: string }> = [
+const REVIEW_RULES: { pattern: RegExp; message: string }[] = [
   {
     pattern: /\bconsole\.(log|debug)\s*\(/,
     message: "console.log/debug statement found",

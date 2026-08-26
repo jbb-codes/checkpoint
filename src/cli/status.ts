@@ -29,7 +29,7 @@ export async function statusCommand(): Promise<void> {
         socket.end();
       }
     });
-    socket.on("close", () => resolve());
+    socket.on("close", () => { resolve(); });
     socket.on("error", reject);
     socket.write(JSON.stringify({ type: "status" }) + "\n");
   });

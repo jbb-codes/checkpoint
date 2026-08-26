@@ -48,9 +48,7 @@ describe("gate/respond flow", () => {
   function withStubbedDefaults(config: Config): Config {
     const stages: Config["stages"] = { ...config.stages };
     for (const stage of REAL_DEFAULT_STAGES) {
-      if (!stages[stage]) {
-        stages[stage] = { backend: writeInstantBackend() };
-      }
+      stages[stage] ??= { backend: writeInstantBackend() };
     }
     return { stages };
   }
@@ -58,7 +56,9 @@ describe("gate/respond flow", () => {
   function connectSocket(): Promise<Socket> {
     return new Promise((resolve, reject) => {
       const socket = connect(socketPath);
-      socket.once("connect", () => resolve(socket));
+      socket.once("connect", () => {
+        resolve(socket);
+      });
       socket.once("error", reject);
     });
   }

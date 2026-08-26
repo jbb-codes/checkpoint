@@ -65,7 +65,9 @@ describe("daemon pipeline run", () => {
         }
       });
 
-      socket.on("close", () => resolve(events));
+      socket.on("close", () => {
+        resolve(events);
+      });
       socket.on("error", reject);
     });
   }
@@ -84,9 +86,7 @@ describe("daemon pipeline run", () => {
   ): Config {
     const stages: Config["stages"] = { ...overrides };
     for (const stage of REAL_DEFAULT_STAGES) {
-      if (!stages[stage]) {
-        stages[stage] = { backend: writeInstantBackend() };
-      }
+      stages[stage] ??= { backend: writeInstantBackend() };
     }
     return { stages };
   }

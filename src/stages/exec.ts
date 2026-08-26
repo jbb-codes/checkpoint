@@ -25,5 +25,5 @@ export const defaultCommandRunner: CommandRunner = (command, args, options) =>
       stderr += chunk.toString();
     });
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    child.on("close", (code) => { resolve({ code: code ?? 1, stdout, stderr }); });
   });
