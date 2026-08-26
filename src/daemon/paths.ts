@@ -3,7 +3,12 @@ import { join } from "node:path";
 
 const CHECKPOINT_DIR = join(homedir(), ".checkpoint");
 
-export function defaultSocketPath(): string {
+export function defaultSocketPath(
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === "win32") {
+    return "\\\\.\\pipe\\checkpoint-daemon";
+  }
   return join(CHECKPOINT_DIR, "daemon.sock");
 }
 
