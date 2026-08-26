@@ -14,3 +14,11 @@ export function defaultDbPath(): string {
 export function checkpointDir(): string {
   return CHECKPOINT_DIR;
 }
+
+export function defaultGlobalConfigPath(): string {
+  return join(CHECKPOINT_DIR, "config.yaml");
+}
+
+export function defaultRepoConfigPath(cwd: string): string {
+  return join(cwd, ".checkpoint.yaml");
+}
