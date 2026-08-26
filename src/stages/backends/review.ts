@@ -40,7 +40,8 @@ export function createReviewBackend(
         let content: string;
         try {
           content = readFile(join(context.cwd, file));
-        } catch {
+        } catch (error) {
+          console.error(`checkpoint: skipping unreadable file ${file}`, error);
           continue;
         }
 

@@ -1,6 +1,6 @@
 import { defaultCommandRunner, type CommandRunner } from "../exec.js";
 import type { StageBackend } from "../types.js";
-import { createFinding } from "./finding.js";
+import { commandFailureResult } from "./finding.js";
 
 export function createPushBackend(
   runner: CommandRunner = defaultCommandRunner,
@@ -14,16 +14,7 @@ export function createPushBackend(
       );
 
       if (branch.code !== 0) {
-        return {
-          status: "failed",
-          findings: [
-            createFinding({
-              description:
-                branch.stderr.trim() || "unable to determine current branch",
-              severity: "error",
-            }),
-          ],
-        };
+        return commandFailureResult(branch, "unable to determine current branch");
       }
 
       const branchName = branch.stdout.trim();
@@ -32,15 +23,7 @@ export function createPushBackend(
       });
 
       if (push.code !== 0) {
-        return {
-          status: "failed",
-          findings: [
-            createFinding({
-              description: push.stderr.trim() || "git push failed",
-              severity: "error",
-            }),
-          ],
-        };
+        return commandFailureResult(push, "git push failed");
       }
 
       return { status: "passed" };
