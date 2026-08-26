@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { connect, type Socket } from "node:net";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,10 +8,19 @@ import Database from "better-sqlite3";
 import { startDaemon, type Daemon } from "../../src/daemon/server.js";
 import type { DaemonEvent } from "../../src/protocol/messages.js";
 import type { Config } from "../../src/config/schema.js";
+import type { StageName } from "../../src/stages/types.js";
 
 function writeBackend(path: string, body: string): void {
   writeFileSync(path, `export default { run: async () => (${body}) };`);
 }
+
+const REAL_DEFAULT_STAGES = [
+  "test",
+  "lint",
+  "push",
+  "PR",
+  "CI",
+] as const satisfies readonly StageName[];
 
 describe("gate/respond flow", () => {
   let dir: string;
@@ -28,6 +38,22 @@ describe("gate/respond flow", () => {
     await daemon.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  function writeInstantBackend(): string {
+    const backendPath = join(dir, `instant-backend-${randomUUID()}.mjs`);
+    writeBackend(backendPath, `{ status: "passed" }`);
+    return backendPath;
+  }
+
+  function withStubbedDefaults(config: Config): Config {
+    const stages: Config["stages"] = { ...config.stages };
+    for (const stage of REAL_DEFAULT_STAGES) {
+      if (!stages[stage]) {
+        stages[stage] = { backend: writeInstantBackend() };
+      }
+    }
+    return { stages };
+  }
 
   function connectSocket(): Promise<Socket> {
     return new Promise((resolve, reject) => {
@@ -105,7 +131,9 @@ describe("gate/respond flow", () => {
         ],
       }`,
     );
-    const config: Config = { stages: { review: { backend: backendPath } } };
+    const config = withStubbedDefaults({
+      stages: { review: { backend: backendPath } },
+    });
     daemon = await startDaemon({ socketPath, dbPath, config });
 
     const socket = await connectSocket();
@@ -133,7 +161,9 @@ describe("gate/respond flow", () => {
         ],
       }`,
     );
-    const config: Config = { stages: { review: { backend: backendPath } } };
+    const config = withStubbedDefaults({
+      stages: { review: { backend: backendPath } },
+    });
     daemon = await startDaemon({ socketPath, dbPath, config });
 
     const socket = await connectSocket();
@@ -181,7 +211,9 @@ describe("gate/respond flow", () => {
         ],
       }`,
     );
-    const config: Config = { stages: { review: { backend: backendPath } } };
+    const config = withStubbedDefaults({
+      stages: { review: { backend: backendPath } },
+    });
     daemon = await startDaemon({ socketPath, dbPath, config });
 
     const socket = await connectSocket();
@@ -221,7 +253,9 @@ describe("gate/respond flow", () => {
         ],
       }`,
     );
-    const config: Config = { stages: { review: { backend: backendPath } } };
+    const config = withStubbedDefaults({
+      stages: { review: { backend: backendPath } },
+    });
     daemon = await startDaemon({ socketPath, dbPath, config });
 
     const socket = await connectSocket();
@@ -256,7 +290,9 @@ describe("gate/respond flow", () => {
         ],
       }`,
     );
-    const config: Config = { stages: { review: { backend: backendPath } } };
+    const config = withStubbedDefaults({
+      stages: { review: { backend: backendPath } },
+    });
     daemon = await startDaemon({ socketPath, dbPath, config });
 
     const socket = await connectSocket();

@@ -1,13 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { connect } from "node:net";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { startDaemon, type Daemon } from "../../src/daemon/server.js";
 import type { DaemonEvent } from "../../src/protocol/messages.js";
-import { STAGE_ORDER } from "../../src/stages/types.js";
+import { STAGE_ORDER, type StageName } from "../../src/stages/types.js";
 import type { Config } from "../../src/config/schema.js";
+
+const REAL_DEFAULT_STAGES = [
+  "review",
+  "test",
+  "lint",
+  "push",
+  "PR",
+  "CI",
+] as const satisfies readonly StageName[];
 
 describe("daemon pipeline run", () => {
   let dir: string;
@@ -60,6 +70,27 @@ describe("daemon pipeline run", () => {
     });
   }
 
+  function writeInstantBackend(): string {
+    const backendPath = join(dir, `instant-backend-${randomUUID()}.mjs`);
+    writeFileSync(
+      backendPath,
+      `export default { run: async () => ({ status: "passed" }) };`,
+    );
+    return backendPath;
+  }
+
+  function stubOutRealDefaults(
+    overrides: Partial<Config["stages"]> = {},
+  ): Config {
+    const stages: Config["stages"] = { ...overrides };
+    for (const stage of REAL_DEFAULT_STAGES) {
+      if (!stages[stage]) {
+        stages[stage] = { backend: writeInstantBackend() };
+      }
+    }
+    return { stages };
+  }
+
   function fetchStatus(): Promise<DaemonEvent> {
     return new Promise((resolve, reject) => {
       const socket = connect(socketPath);
@@ -83,8 +114,12 @@ describe("daemon pipeline run", () => {
     });
   }
 
-  it("runs all 9 stages in fixed order using the built-in stub backend", async () => {
-    daemon = await startDaemon({ socketPath, dbPath, config: {} });
+  it("runs all 9 stages in fixed order", async () => {
+    daemon = await startDaemon({
+      socketPath,
+      dbPath,
+      config: stubOutRealDefaults(),
+    });
 
     const events = await collectEvents();
 
@@ -104,7 +139,11 @@ describe("daemon pipeline run", () => {
   });
 
   it("persists the run to SQLite with id, status, and timestamps", async () => {
-    daemon = await startDaemon({ socketPath, dbPath, config: {} });
+    daemon = await startDaemon({
+      socketPath,
+      dbPath,
+      config: stubOutRealDefaults(),
+    });
     const events = await collectEvents();
     const outcome = events[events.length - 1];
     if (outcome.type !== "outcome") throw new Error("expected outcome");
@@ -131,9 +170,9 @@ describe("daemon pipeline run", () => {
       failingBackendPath,
       `export default { run: async () => ({ status: "failed" }) };`,
     );
-    const config: Config = {
-      stages: { lint: { backend: failingBackendPath } },
-    };
+    const config = stubOutRealDefaults({
+      lint: { backend: failingBackendPath },
+    });
     daemon = await startDaemon({ socketPath, dbPath, config });
 
     const events = await collectEvents();
@@ -165,9 +204,9 @@ describe("daemon pipeline run", () => {
          return { status: "passed" };
        } };`,
     );
-    const config: Config = {
-      stages: { intent: { backend: cwdCapturingBackendPath } },
-    };
+    const config = stubOutRealDefaults({
+      intent: { backend: cwdCapturingBackendPath },
+    });
     daemon = await startDaemon({ socketPath, dbPath, config });
 
     const clientCwd = join(dir, "some", "other", "worktree");
@@ -180,7 +219,11 @@ describe("daemon pipeline run", () => {
   });
 
   it("reports runs from multiple repos/worktrees through the same daemon's status", async () => {
-    daemon = await startDaemon({ socketPath, dbPath, config: {} });
+    daemon = await startDaemon({
+      socketPath,
+      dbPath,
+      config: stubOutRealDefaults(),
+    });
 
     const repoA = join(dir, "repo-a");
     const repoB = join(dir, "repo-b");
