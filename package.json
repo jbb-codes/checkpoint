@@ -10,15 +10,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run"
   },
   "license": "MIT",
   "engines": {
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }
