@@ -4,6 +4,7 @@ import type { RunSummary } from "../protocol/messages.js";
 export interface RunStore {
   createRun(id: string, repo: string, startedAt: string): void;
   finishRun(id: string, status: "passed" | "failed", finishedAt: string): void;
+  markInterruptedRunsFailed(finishedAt: string): void;
   listRuns(): RunSummary[];
   close(): void;
 }
@@ -40,6 +41,9 @@ export function openRunStore(dbPath: string): RunStore {
   const updateRun = db.prepare(
     "UPDATE runs SET status = ?, finished_at = ? WHERE id = ?",
   );
+  const markInterrupted = db.prepare(
+    "UPDATE runs SET status = 'failed', finished_at = ? WHERE status = 'running'",
+  );
   const selectRuns = db.prepare(
     "SELECT id, repo, status, started_at, finished_at FROM runs ORDER BY started_at DESC",
   );
@@ -50,6 +54,9 @@ export function openRunStore(dbPath: string): RunStore {
     },
     finishRun(id, status, finishedAt) {
       updateRun.run(status, finishedAt, id);
+    },
+    markInterruptedRunsFailed(finishedAt) {
+      markInterrupted.run(finishedAt);
     },
     listRuns() {
       const rows = selectRuns.all() as RunRow[];
