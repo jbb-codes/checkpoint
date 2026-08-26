@@ -1,0 +1,3 @@
+# Backend discovery is local-script-path only, no package registry
+
+Stages need pluggable implementations (a different linter, a custom review step) without requiring checkpoint's own source to change. We chose to resolve a stage's `backend:` config value as either a built-in name or a relative/absolute path to a local script exporting `StageBackend` — deliberately not an npm-package naming convention or a plugin registry. This is a real capability trade-off (no ecosystem of installable backends) accepted in exchange for zero discovery/trust machinery: a backend is just a file you point at, nothing to publish, version, or audit from a registry.

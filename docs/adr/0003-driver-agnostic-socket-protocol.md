@@ -1,0 +1,3 @@
+# One driver-agnostic JSON protocol over a local socket, not separate human/agent APIs
+
+Both an interactive human terminal and an AI agent need to drive checkpoint, and we wanted both to be testable and reasoned about through the same interface rather than maintaining two parallel code paths. We chose a single event-stream protocol (Unix domain socket on macOS/Linux, named pipe on Windows; `stage_started`/`stage_finished`/`gate_hit` pushed as they occur) that the CLI renders as an interactive prompt for a human or raw structured output for an agent. Rejected: a separate "agent API" alongside a human CLI — that would let the two drift out of sync and double the surface area to test.

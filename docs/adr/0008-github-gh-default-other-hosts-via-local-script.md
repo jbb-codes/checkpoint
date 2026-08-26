@@ -1,0 +1,3 @@
+# GitHub via the `gh` CLI is the only built-in push/PR/CI backend
+
+Pushing and opening PRs needs to work out of the box with tooling developers already have installed and authenticated, and GitHub is what this project and its early users are on. We built the default push/PR/CI backend against `git` and the `gh` CLI only, explicitly not GitLab, Azure DevOps, or Bitbucket. Other hosts are reachable via the same local-script backend mechanism as any other stage ([ADR-0005](./0005-local-script-backend-discovery.md)), so this isn't a hard lock-in — but it does mean non-GitHub users get no default and must write their own script from day one.
