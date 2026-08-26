@@ -3,10 +3,15 @@ import { randomUUID } from "node:crypto";
 import { unlinkSync, existsSync } from "node:fs";
 import { openRunStore, type RunStore } from "../state/db.js";
 import type { ClientRequest, DaemonEvent } from "../protocol/messages.js";
+import type { Config } from "../config/schema.js";
+import { STAGE_ORDER } from "../stages/types.js";
+import { loadStageBackend } from "../stages/loader.js";
+import { stubBackend } from "../stages/stub.js";
 
 export interface DaemonOptions {
   socketPath: string;
   dbPath: string;
+  config: Config;
 }
 
 export interface Daemon {
@@ -17,21 +22,43 @@ function send(socket: Socket, event: DaemonEvent): void {
   socket.write(JSON.stringify(event) + "\n");
 }
 
-async function runStubStage(
+async function runPipeline(
   runId: string,
   socket: Socket,
   store: RunStore,
+  config: Config,
 ): Promise<void> {
-  const stage = "stub";
+  for (const stage of STAGE_ORDER) {
+    const backendPath = config.stages?.[stage]?.backend;
+    const backend = backendPath
+      ? await loadStageBackend(backendPath)
+      : stubBackend;
 
-  send(socket, { type: "stage_started", runId, stage });
-  send(socket, { type: "stage_finished", runId, stage, status: "passed" });
+    send(socket, { type: "stage_started", runId, stage });
+    const result = await backend.run({ runId, cwd: process.cwd() });
+    send(socket, {
+      type: "stage_finished",
+      runId,
+      stage,
+      status: result.status,
+    });
+
+    if (result.status === "failed") {
+      store.finishRun(runId, "failed", new Date().toISOString());
+      send(socket, { type: "outcome", runId, status: "failed" });
+      return;
+    }
+  }
 
   store.finishRun(runId, "passed", new Date().toISOString());
   send(socket, { type: "outcome", runId, status: "passed" });
 }
 
-function handleConnection(socket: Socket, store: RunStore): void {
+function handleConnection(
+  socket: Socket,
+  store: RunStore,
+  config: Config,
+): void {
   let buffer = "";
 
   socket.on("data", (chunk) => {
@@ -46,7 +73,7 @@ function handleConnection(socket: Socket, store: RunStore): void {
       if (request.type === "run") {
         const runId = randomUUID();
         store.createRun(runId, new Date().toISOString());
-        void runStubStage(runId, socket, store);
+        void runPipeline(runId, socket, store, config);
       }
     }
   });
@@ -60,7 +87,7 @@ export function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   const server: Server = createServer((socket) =>
-    handleConnection(socket, store),
+    handleConnection(socket, store, options.config),
   );
 
   return new Promise((resolve, reject) => {

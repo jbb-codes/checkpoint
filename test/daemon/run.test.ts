@@ -1,23 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { connect } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { startDaemon, type Daemon } from "../../src/daemon/server.js";
 import type { DaemonEvent } from "../../src/protocol/messages.js";
+import { STAGE_ORDER } from "../../src/stages/types.js";
+import type { Config } from "../../src/config/schema.js";
 
-describe("daemon single-stage run", () => {
+describe("daemon pipeline run", () => {
   let dir: string;
   let socketPath: string;
   let dbPath: string;
   let daemon: Daemon;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "checkpoint-test-"));
     socketPath = join(dir, "daemon.sock");
     dbPath = join(dir, "state.db");
-    daemon = await startDaemon({ socketPath, dbPath });
   });
 
   afterEach(async () => {
@@ -55,23 +56,30 @@ describe("daemon single-stage run", () => {
     });
   }
 
-  it("streams stage_started, stage_finished, then outcome over the socket", async () => {
+  it("runs all 9 stages in fixed order using the built-in stub backend", async () => {
+    daemon = await startDaemon({ socketPath, dbPath, config: {} });
+
     const events = await collectEvents();
 
-    expect(events.map((event) => event.type)).toEqual([
-      "stage_started",
-      "stage_finished",
-      "outcome",
-    ]);
+    const startedStages = events
+      .filter((event) => event.type === "stage_started")
+      .map((event) => event.stage);
+    const finishedStages = events
+      .filter((event) => event.type === "stage_finished")
+      .map((event) => event.stage);
 
-    const outcome = events[2];
+    expect(startedStages).toEqual([...STAGE_ORDER]);
+    expect(finishedStages).toEqual([...STAGE_ORDER]);
+
+    const outcome = events[events.length - 1];
     if (outcome.type !== "outcome") throw new Error("expected outcome");
     expect(outcome.status).toBe("passed");
   });
 
   it("persists the run to SQLite with id, status, and timestamps", async () => {
+    daemon = await startDaemon({ socketPath, dbPath, config: {} });
     const events = await collectEvents();
-    const outcome = events[2];
+    const outcome = events[events.length - 1];
     if (outcome.type !== "outcome") throw new Error("expected outcome");
 
     const db = new Database(dbPath, { readonly: true });
@@ -88,5 +96,34 @@ describe("daemon single-stage run", () => {
     expect(row?.status).toBe("passed");
     expect(row?.started_at).toBeTruthy();
     expect(row?.finished_at).toBeTruthy();
+  });
+
+  it("loads a stage's backend from config and stops the pipeline when it fails", async () => {
+    const failingBackendPath = join(dir, "failing-lint-backend.mjs");
+    writeFileSync(
+      failingBackendPath,
+      `export default { run: async () => ({ status: "failed" }) };`,
+    );
+    const config: Config = {
+      stages: { lint: { backend: failingBackendPath } },
+    };
+    daemon = await startDaemon({ socketPath, dbPath, config });
+
+    const events = await collectEvents();
+
+    const startedStages = events
+      .filter((event) => event.type === "stage_started")
+      .map((event) => event.stage);
+    const finishedStages = events
+      .filter((event) => event.type === "stage_finished")
+      .map((event) => event.stage);
+
+    const lintIndex = STAGE_ORDER.indexOf("lint");
+    expect(startedStages).toEqual(STAGE_ORDER.slice(0, lintIndex + 1));
+    expect(finishedStages).toEqual(STAGE_ORDER.slice(0, lintIndex + 1));
+
+    const outcome = events[events.length - 1];
+    if (outcome.type !== "outcome") throw new Error("expected outcome");
+    expect(outcome.status).toBe("failed");
   });
 });

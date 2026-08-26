@@ -25,6 +25,8 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "^13.0.3",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   }
 }
