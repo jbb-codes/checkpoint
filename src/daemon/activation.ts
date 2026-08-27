@@ -7,22 +7,30 @@ export interface ActivationEnv {
   [key: string]: string | undefined;
 }
 
+export type ActivationKind = "systemd" | "launchd";
+
+export interface Activation {
+  readonly kind: ActivationKind;
+  readonly fd: number;
+}
+
 /**
- * Resolves the file descriptor an OS-managed service (systemd socket
- * activation, or our own launchd activation flag) has already bound and
- * handed to this process, if any. Returns undefined when the daemon should
- * create its own socket (lazy-start path).
+ * Detects whether an OS-managed service handed this process a socket on
+ * startup: systemd's LISTEN_FDS/LISTEN_PID protocol, or our own launchd
+ * activation flag. Returns undefined when the daemon should create its own
+ * socket (lazy-start path).
  */
-export function resolveActivationFd(
+export function resolveActivation(
   env: ActivationEnv,
   pid: number = process.pid,
-): number | undefined {
+  activatedFd: number = ACTIVATED_FD,
+): Activation | undefined {
   if (env.CHECKPOINT_SOCKET_ACTIVATED === "1") {
-    return ACTIVATED_FD;
+    return { kind: "launchd", fd: activatedFd };
   }
 
   if (env.LISTEN_FDS && env.LISTEN_PID === String(pid)) {
-    return ACTIVATED_FD;
+    return { kind: "systemd", fd: activatedFd };
   }
 
   return undefined;
@@ -31,12 +39,23 @@ export function resolveActivationFd(
 export type ListenTarget = string | { fd: number };
 
 /**
- * The socket path to bind (lazy-start path), or the pre-bound fd the OS
- * already listened on (socket-activation path) for net.Server#listen.
+ * The target for net.Server#listen.
+ *
+ * systemd hands over a socket that is bound but NOT yet listening, so we
+ * pass its fd straight through and let Node's listen() call finish the job.
+ *
+ * launchd hands over a socket that is already bound AND listening. Calling
+ * Node's listen({fd}) on it a second time crashes with ENOTTY on macOS (see
+ * issue #9), so for launchd we fall back to self-binding a fresh socket at
+ * the same path instead of reusing the handed-off fd.
  */
 export function resolveListenTarget(
   socketPath: string,
-  activationFd: number | undefined,
+  activation: Activation | undefined,
 ): ListenTarget {
-  return activationFd !== undefined ? { fd: activationFd } : socketPath;
+  if (activation === undefined || activation.kind === "launchd") {
+    return socketPath;
+  }
+
+  return { fd: activation.fd };
 }

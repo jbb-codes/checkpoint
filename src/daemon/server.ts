@@ -1,6 +1,6 @@
 import { createServer, type Server, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
-import { unlinkSync, existsSync } from "node:fs";
+import { closeSync, unlinkSync, existsSync } from "node:fs";
 import { openRunStore, type RunStore } from "../state/db.js";
 import {
   clientRequestSchema,
@@ -13,7 +13,7 @@ import { STAGE_ORDER, type StageName } from "../stages/types.js";
 import type { StageBackend, StageResult } from "../stages/types.js";
 import { loadStageBackend } from "../stages/loader.js";
 import { getDefaultBackend } from "../stages/defaults.js";
-import { resolveActivationFd, resolveListenTarget } from "./activation.js";
+import { resolveActivation, resolveListenTarget } from "./activation.js";
 import { startIdleShutdown } from "./idle-shutdown.js";
 
 const IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
@@ -22,6 +22,12 @@ export interface DaemonOptions {
   socketPath: string;
   dbPath: string;
   config: Config;
+  /**
+   * Overrides the fd number read for OS-managed socket activation. Tests use
+   * this to inject a real pre-bound fd without remapping the process's
+   * actual fd 3.
+   */
+  activatedFd?: number;
 }
 
 export interface Daemon {
@@ -251,13 +257,27 @@ export function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const store = openRunStore(options.dbPath);
   store.markInterruptedRunsFailed(new Date().toISOString());
 
-  const activationFd = resolveActivationFd(process.env);
-  if (activationFd === undefined && existsSync(options.socketPath)) {
+  const activation = resolveActivation(
+    process.env,
+    process.pid,
+    options.activatedFd,
+  );
+
+  // launchd hands over a socket that's already bound AND listening; Node's
+  // listen({fd}) fails trying to listen() it a second time (ENOTTY on
+  // macOS, see issue #9). Release our copy of that fd and self-bind fresh
+  // at the same path instead, same as the plain lazy-start path.
+  if (activation?.kind === "launchd") {
+    closeSync(activation.fd);
+  }
+
+  const selfBinds = activation === undefined || activation.kind === "launchd";
+  if (selfBinds && existsSync(options.socketPath)) {
     unlinkSync(options.socketPath);
   }
 
   const idle =
-    activationFd === undefined
+    activation === undefined
       ? undefined
       : startIdleShutdown(() => {
           void close().then(() => process.exit(0));
@@ -283,7 +303,7 @@ export function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(resolveListenTarget(options.socketPath, activationFd), () => {
+    server.listen(resolveListenTarget(options.socketPath, activation), () => {
       server.removeListener("error", reject);
       resolve({ close });
     });
