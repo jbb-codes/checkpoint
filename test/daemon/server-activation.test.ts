@@ -61,7 +61,7 @@ describe("startDaemon launchd activation", () => {
     preboundServer = createServer();
     await new Promise<void>((resolve, reject) => {
       preboundServer?.once("error", reject);
-      preboundServer?.listen(socketPath, () => resolve());
+      preboundServer?.listen(socketPath, () => { resolve(); });
     });
     const originalFd = (
       preboundServer as unknown as { _handle: { fd: number } }
