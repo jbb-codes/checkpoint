@@ -7,17 +7,10 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { startDaemon, type Daemon } from "../../src/daemon/server.js";
 import type { DaemonEvent } from "../../src/protocol/messages.js";
-import { STAGE_ORDER, type StageName } from "../../src/stages/types.js";
+import { STAGE_ORDER } from "../../src/stages/types.js";
 import type { Config } from "../../src/config/schema.js";
 
-const REAL_DEFAULT_STAGES = [
-  "review",
-  "test",
-  "lint",
-  "push",
-  "PR",
-  "CI",
-] as const satisfies readonly StageName[];
+const REAL_DEFAULT_STAGES = STAGE_ORDER;
 
 describe("daemon pipeline run", () => {
   let dir: string;
@@ -266,5 +259,59 @@ describe("daemon pipeline run", () => {
       throw new Error("expected status_response");
     }
     expect(response.runs).toEqual([]);
+  });
+
+  it("passes the client's intent through to stage backends", async () => {
+    const capturedIntentPath = join(dir, "captured-intent.json");
+    const intentCapturingBackendPath = join(
+      dir,
+      "intent-capturing-backend.mjs",
+    );
+    writeFileSync(
+      intentCapturingBackendPath,
+      `import { writeFileSync } from "node:fs";
+       export default { run: async (ctx) => {
+         writeFileSync(${JSON.stringify(capturedIntentPath)}, JSON.stringify(ctx.intent));
+         return { status: "passed" };
+       } };`,
+    );
+    const config = stubOutRealDefaults({
+      intent: { backend: intentCapturingBackendPath },
+    });
+    daemon = await startDaemon({ socketPath, dbPath, config });
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(socketPath);
+      let buffer = "";
+      socket.on("connect", () => {
+        socket.write(
+          JSON.stringify({
+            type: "run",
+            cwd: dir,
+            intent: "add dark mode toggle",
+          }) + "\n",
+        );
+      });
+      socket.on("data", (chunk: Buffer) => {
+        buffer += chunk.toString();
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+          if (line.length === 0) continue;
+          const message = JSON.parse(line) as { type: string };
+          if (message.type === "outcome") socket.end();
+        }
+      });
+      socket.on("close", () => {
+        resolve();
+      });
+      socket.on("error", reject);
+    });
+
+    const captured = JSON.parse(
+      readFileSync(capturedIntentPath, "utf8"),
+    ) as string;
+    expect(captured).toBe("add dark mode toggle");
   });
 });

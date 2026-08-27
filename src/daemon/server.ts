@@ -128,6 +128,7 @@ async function handleGateHit(
 async function runPipeline(
   runId: string,
   cwd: string,
+  intent: string,
   store: RunStore,
   config: Config,
   registry: Map<string, RunState>,
@@ -142,7 +143,7 @@ async function runPipeline(
     const backend = await resolveStageBackend(stage, config);
 
     send(socket, { type: "stage_started", runId, stage });
-    const result = await backend.run({ runId, cwd });
+    const result = await backend.run({ runId, cwd, intent });
 
     if (isAborted(registry, runId)) break;
 
@@ -217,7 +218,14 @@ function handleConnection(
       const runId = randomUUID();
       store.createRun(runId, request.cwd, new Date().toISOString());
       registry.set(runId, { socket, aborted: false });
-      void runPipeline(runId, request.cwd, store, config, registry);
+      void runPipeline(
+        runId,
+        request.cwd,
+        request.intent ?? "",
+        store,
+        config,
+        registry,
+      );
     } else if (request.type === "status") {
       send(socket, { type: "status_response", runs: store.listRuns() });
     } else if (request.type === "respond") {
