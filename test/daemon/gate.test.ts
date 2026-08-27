@@ -15,7 +15,10 @@ function writeBackend(path: string, body: string): void {
 }
 
 const REAL_DEFAULT_STAGES = [
+  "intent",
+  "rebase",
   "test",
+  "document",
   "lint",
   "push",
   "PR",

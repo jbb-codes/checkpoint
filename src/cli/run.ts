@@ -20,7 +20,7 @@ function describe(event: RunEvent): string {
   }
 }
 
-export async function runCommand(): Promise<void> {
+export async function runCommand(intent?: string): Promise<void> {
   const socket = await connectWithRetry(defaultSocketPath());
 
   await new Promise<void>((resolve, reject) => {
@@ -36,6 +36,8 @@ export async function runCommand(): Promise<void> {
       resolve();
     });
     socket.on("error", reject);
-    socket.write(JSON.stringify({ type: "run", cwd: process.cwd() }) + "\n");
+    socket.write(
+      JSON.stringify({ type: "run", cwd: process.cwd(), intent }) + "\n",
+    );
   });
 }

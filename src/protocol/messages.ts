@@ -15,6 +15,7 @@ const findingSchema = z.object({
 export const runRequestSchema = z.object({
   type: z.literal("run"),
   cwd: z.string(),
+  intent: z.string().optional(),
 });
 export type RunRequest = z.infer<typeof runRequestSchema>;
 

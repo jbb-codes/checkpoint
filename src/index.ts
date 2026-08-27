@@ -25,9 +25,12 @@ async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
   switch (command) {
-    case "run":
-      await runCommand();
+    case "run": {
+      const intentIndex = args.indexOf("--intent");
+      const intent = intentIndex === -1 ? undefined : args[intentIndex + 1];
+      await runCommand(intent);
       break;
+    }
     case "status":
       await statusCommand();
       break;

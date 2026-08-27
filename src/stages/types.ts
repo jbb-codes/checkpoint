@@ -15,6 +15,7 @@ export type StageName = (typeof STAGE_ORDER)[number];
 export interface StageContext {
   runId: string;
   cwd: string;
+  intent?: string;
 }
 
 export type FindingAction = "auto-fix" | "no-op" | "ask-user";

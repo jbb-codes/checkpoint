@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { CommandResult } from "../exec.js";
 import type { Finding, StageResult } from "../types.js";
 
-export function createFinding(input: Omit<Finding, "id" | "action">): Finding {
+export function createFinding(
+  input: Omit<Finding, "id" | "action"> & Partial<Pick<Finding, "action">>,
+): Finding {
   return { id: randomUUID(), action: "no-op", ...input };
 }
 
