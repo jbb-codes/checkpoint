@@ -22,6 +22,12 @@ export interface DaemonOptions {
   socketPath: string;
   dbPath: string;
   config: Config;
+  /**
+   * Overrides the fd number read for OS-managed socket activation. Tests use
+   * this to inject a real pre-bound fd without remapping the process's
+   * actual fd 3.
+   */
+  activatedFd?: number;
 }
 
 export interface Daemon {
@@ -251,7 +257,11 @@ export function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const store = openRunStore(options.dbPath);
   store.markInterruptedRunsFailed(new Date().toISOString());
 
-  const activation = resolveActivation(process.env);
+  const activation = resolveActivation(
+    process.env,
+    process.pid,
+    options.activatedFd,
+  );
 
   // launchd hands over a socket that's already bound AND listening; Node's
   // listen({fd}) fails trying to listen() it a second time (ENOTTY on

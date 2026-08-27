@@ -23,13 +23,14 @@ export interface Activation {
 export function resolveActivation(
   env: ActivationEnv,
   pid: number = process.pid,
+  activatedFd: number = ACTIVATED_FD,
 ): Activation | undefined {
   if (env.CHECKPOINT_SOCKET_ACTIVATED === "1") {
-    return { kind: "launchd", fd: ACTIVATED_FD };
+    return { kind: "launchd", fd: activatedFd };
   }
 
   if (env.LISTEN_FDS && env.LISTEN_PID === String(pid)) {
-    return { kind: "systemd", fd: ACTIVATED_FD };
+    return { kind: "systemd", fd: activatedFd };
   }
 
   return undefined;
