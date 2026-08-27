@@ -1,0 +1,8 @@
+# no-mistakes repository configuration
+# https://github.com/jbb-codes/checkpoint
+
+# This repository has no CI configured (no .github/workflows). Declare that
+# explicitly so the no-mistakes pipeline's ci step treats "no checks
+# registered" as passing instead of polling forever for checks that will
+# never appear. Trusted only when read from the default branch.
+no_ci: true
